@@ -1,0 +1,34 @@
+linux创建指定大小文件：
+
+```shell
+[niezhicheng@power27 httpSendRecv]$ dd if=/dev/zero of=test bs=1G count=1
+1+0 records in
+1+0 records out
+1073741824 bytes (1.1 GB) copied, 1.08877 s, 986 MB/s
+[niezhicheng@power27 httpSendRecv]$ ls
+httpSendRecv  SendRecv.go  test
+[niezhicheng@power27 httpSendRecv]$ ll
+total 1055992
+-rwxr-xr-x 1 niezhicheng developer_students    7587360 Dec 26 15:56 httpSendRecv
+-rw-r--r-- 1 niezhicheng developer_students       1332 Dec 26 15:56 SendRecv.go
+-rw-r--r-- 1 niezhicheng developer_students 1073741824 Dec 26 15:58 test
+```
+
+通过http file serverr:
+
+```shell
+[niezhicheng@power21 ~]$ curl -o localTest 10.222.111.11:8080/files/test
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+100 1024M  100 1024M    0     0   112M      0  0:00:09  0:00:09 --:--:--  112M
+```
+
+通过scp:
+
+```shell
+[niezhicheng@power21 ~]$ scp niezhicheng@10.222.111.11:~/localTest scpTest
+niezhicheng@10.222.111.11's password: 
+/etc/bashrc: line 84: .: /etc/profile.d/module.sh: is a directory
+localTest                                                                                               100% 1024MB  73.8MB/s   00:13
+```
+
