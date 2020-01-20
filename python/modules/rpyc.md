@@ -219,6 +219,8 @@ t = ThreadedServer(service, port=18861)
 
 > on_connect` and `on_disconnect, Passing instances and classpartial 都是4.0以后加入的
 
+### Registry Server
+
 每个服务都有一个名字，通常是类名减去`“service”`后缀。服务名不区分大小写，如果想要定义一个服务名，可以通过设置`ALIASES`列表，该列表第一个元素是“正名”，其他的是“别名”
 
 ```python
@@ -236,5 +238,155 @@ class SomeOtherService(rpyc.Service):
 
 服务的名字用于**服务注册**：server会将它的details广播给附近的registry server以被发现
 
-`bin/rpyc_registry.py`便是一个registry server，它会监听广播UDP socket，并回答关于哪个服务正在何处运行的查询
+`bin/rpyc_registry.py`便是一个registry server，它会监听广播UDP socket，并回答关于哪个服务正在何处运行的查询。如果有一个registry server在网络上进行广播，而且其他server都配置为自动注册，则客户端可以自动地发现这些服务：
+
+```python
+>>> rpyc.discover("MY")
+(('192.168.1.101', 18861),)
+```
+
+以及如果不在意具体连接到哪个服务，可以通过服务来进行连接：
+
+```python
+>>> c2 = rpyc.connect_by_service("MY")
+>>> c2.root.get_answer()
+42
+```
+
+<font color=red>(服务发现这一块，本地起两个server线程和一个registry server线程（来自github的registry server），未能找到相关服务)</font>
+
+
+
+
+
+### 回调函数
+
+所谓回调函数是指将一个函数像值一样进行传递啊，在c和c++中可以使用函数指针，在python中：
+
+```python
+>>> def f(x):
+...     return x**2
+...
+>>> map(f, range(10))   # f is passed as an argument to map
+[0, 1, 4, 9, 16, 25, 36, 49, 64, 81]
+```
+
+在rpyc的场景中：
+
+```python
+>>> import rpyc
+>>> c = rpyc.classic.connect("localhost")
+>>> rlist = c.modules.__builtin__.range(10) # this is a remote list
+>>> rlist
+[0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
+>>>
+>>> def f(x):
+...     return x**3
+...
+>>> c.modules.__builtin__.map(f, rlist)  # calling the remote map with the local function f as an argument
+[0, 1, 8, 27, 64, 125, 216, 343, 512, 729]
+>>>
+
+# and to better understand the previous example
+>>> def g(x):
+...     print "hi, this is g, executing locally", x
+...     return x**3
+...
+>>> c.modules.__builtin__.map(g, rlist)
+hi, this is g, executing locally 0
+hi, this is g, executing locally 1
+hi, this is g, executing locally 2
+hi, this is g, executing locally 3
+hi, this is g, executing locally 4
+hi, this is g, executing locally 5
+hi, this is g, executing locally 6
+hi, this is g, executing locally 7
+hi, this is g, executing locally 8
+hi, this is g, executing locally 9
+[0, 1, 8, 27, 64, 125, 216, 343, 512, 729]
+```
+
+这说明**RPyC**是对称的：
+
+![../_images/symmetry.png](https://rpyc.readthedocs.io/en/latest/_images/symmetry.png)
+
+## Part5 ：异步操作和事件
+
+到目前的所有代码都是同步操作的，而异步操作时RPyC的一个key feature。在同步操作中，调用函数后会等待直到函数返回一个结果，而在异步操作中，你会得到一个`AsyncResult`，（又或者叫做`future`或`promise`），他们最终将装载结果。
+
+异步请求的操作顺序不定
+
+为了将远程函数的调用改成异步的，只需要使用`async_`对调用进行封装。这会创建一个返回`AsyncResult`对象的wrapper function（包裹函数）。该对象拥有如下属性和方法：
+
+- `ready` - 表明结果是否已经到达
+- `error` - 表明结果是一个值还是一个错误
+- `expired` - 表明结果是否已超时，（需要设置set_expire，否则不会超时）
+- `value` - 包含在`AsyncResult`中的值，如果尚未ready，则该对属性的访问会被阻塞，如果返回的是一个异常，则对其的访问会引发该异常，如果超时，则会引发一个异常，否则，将会返回该值
+- `wait()` - 等待该结果返回，或者超时
+- `add_callback(func)` - 添加一个回调函数，其将在结果返回时调用
+- `set_expiry(seconds)` - 设置超时时间，默认不设置
+
+示例：
+
+```python
+>>> import rpyc
+>>> c=rpyc.classic.connect("localhost")
+>>> c.modules.time.sleep
+<built-in function sleep>
+>>> c.modules.time.sleep(2) # i block for two seconds, until the call returns
+
+ # wrap the remote function with async_(), which turns the invocation asynchronous
+>>> asleep = rpyc.async_(c.modules.time.sleep)
+>>> asleep
+async_(<built-in function sleep>)
+
+# invoking async functions yields an AsyncResult rather than a value
+>>> res = asleep(15)
+>>> res
+<AsyncResult object (pending) at 0x0842c6bc>
+>>> res.ready
+False
+>>> res.ready
+False
+
+# ... after 15 seconds...
+>>> res.ready
+True
+>>> print res.value
+None
+>>> res
+<AsyncResult object (ready) at 0x0842c6bc>
+```
+
+```python
+>>> aint = rpyc.async_(c.modules.__builtin__.int)  # async wrapper for the remote type int
+
+# a valid call
+>>> x = aint("8")
+>>> x
+<AsyncResult object (pending) at 0x0844992c>
+>>> x.ready
+True
+>>> x.error
+False
+>>> x.value
+8
+
+# and now with an exception
+>>> x = aint("this is not a valid number")
+>>> x
+<AsyncResult object (pending) at 0x0847cb0c>
+>>> x.ready
+True
+>>> x.error
+True
+>>> x.value #
+Traceback (most recent call last):
+...
+  File "/home/tomer/workspace/rpyc/core/async_.py", line 102, in value
+    raise self._obj
+ValueError: invalid literal for int() with base 10: 'this is not a valid number'
+```
+
+### 事件
 
