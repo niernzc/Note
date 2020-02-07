@@ -26,3 +26,31 @@ data   initrd.img.old  mnt         sbin  sys                   vmlinuz.old
 dev    lib             opt         snap  tmp
 ```
 
+```shell
+sudo vmhgfs-fuse .host:/ /mnt/hgfs -o subtype=vmhgfs-fuse,allow_other #将所有共享文件夹挂载到/mnt/hgfs
+sudo ln -sf /mnt/hgfs/vmShare/ /
+```
+
+
+
+添加root用户
+
+```shell
+nzc@ubuntu:~$ sudo passwd root
+Enter new UNIX password: 
+Retype new UNIX password: 
+passwd: password updated successfully
+```
+
+
+
+apt锁被占用：
+
+```shell
+nzc@ubuntu:~$ sudo dpkg --configure -a
+dpkg: error: dpkg frontend is locked by another process
+nzc@ubuntu:~$ sudo rm /var/lib/dpkg/lock-frontend 
+nzc@ubuntu:~$ sudo apt install vim
+Reading package lists... Done
+```
+
